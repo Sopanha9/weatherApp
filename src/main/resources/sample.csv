@@ -1,0 +1,6 @@
+date,location,temperature,humidity,pressure
+2024-01-01,Phnom Penh,34.5,65,1012
+2024-01-02,Phnom Penh,35.0,62,1011
+2024-01-03,Siem Reap,31.2,70,1013
+2024-01-04,Siem Reap,100.0,68,1012
+2024-01-05,Siem Reap,33.0,69,9000
