@@ -3,38 +3,35 @@ package com.sopanha.weatherapp.data.model
 import com.google.gson.annotations.SerializedName
 
 data class WeatherResponse(
-    val name: String,
-    val sys: Sys,
-    val main: Main,
-    val weather: List<Weather>,
-    val wind: Wind,
-    val visibility: Int,
-    val dt: Long
+    @SerializedName("name") val cityName: String,
+    @SerializedName("sys") val sys: Sys,
+    @SerializedName("main") val main: Main,
+    @SerializedName("weather") val weather: List<Weather>,
+    @SerializedName("wind") val wind: Wind,
+    @SerializedName("visibility") val visibility: Int
 )
 
 data class Sys(
-    val country: String,
-    val sunrise: Long,
-    val sunset: Long
+    @SerializedName("country") val country: String
 )
 
 data class Main(
-    val temp: Double,
+    @SerializedName("temp") val temp: Double,
     @SerializedName("feels_like") val feelsLike: Double,
     @SerializedName("temp_min") val tempMin: Double,
     @SerializedName("temp_max") val tempMax: Double,
-    val humidity: Int,
-    val pressure: Int
+    @SerializedName("humidity") val humidity: Int,
+    @SerializedName("pressure") val pressure: Int
 )
 
 data class Weather(
-    val id: Int,
-    val main: String,
-    val description: String,
-    val icon: String
+    @SerializedName("id") val id: Int,
+    @SerializedName("main") val main: String,
+    @SerializedName("description") val description: String,
+    @SerializedName("icon") val icon: String
 )
 
 data class Wind(
-    val speed: Double,
-    val deg: Int
+    @SerializedName("speed") val speed: Double,
+    @SerializedName("deg") val deg: Int
 )

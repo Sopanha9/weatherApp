@@ -7,67 +7,76 @@ import com.sopanha.weatherapp.data.repository.WeatherRepository
 import com.sopanha.weatherapp.utils.ApiResult
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
-import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
-
-sealed class WeatherUiState {
-    object Idle : WeatherUiState()
-    object Loading : WeatherUiState()
-    data class Success(val data: WeatherResponse, val unit: String) : WeatherUiState()
-    data class Error(val message: String) : WeatherUiState()
-}
+import kotlin.math.roundToInt
 
 class WeatherViewModel : ViewModel() {
 
     private val repository = WeatherRepository()
 
-    private val _uiState = MutableStateFlow<WeatherUiState>(WeatherUiState.Idle)
-    val uiState: StateFlow<WeatherUiState> = _uiState.asStateFlow()
+    private val _weatherState = MutableStateFlow<ApiResult<WeatherResponse>?>(null)
+    val weatherState: StateFlow<ApiResult<WeatherResponse>?> = _weatherState
 
-    // "metric" = Celsius, "imperial" = Fahrenheit
-    private var currentUnit = "metric"
-    private var lastCity: String? = null
-    private var lastLat: Double? = null
-    private var lastLon: Double? = null
+    private val _isCelsius = MutableStateFlow(true)
+    val isCelsius: StateFlow<Boolean> = _isCelsius
+
+    // Cached raw metric data (always fetch metric, convert locally)
+    private var cachedResponse: WeatherResponse? = null
 
     fun fetchByCity(city: String) {
-        lastCity = city
-        lastLat = null
-        lastLon = null
+        if (city.isBlank()) return
         viewModelScope.launch {
-            _uiState.value = WeatherUiState.Loading
-            when (val result = repository.getWeatherByCity(city, currentUnit)) {
-                is ApiResult.Success -> _uiState.value = WeatherUiState.Success(result.data, currentUnit)
-                is ApiResult.Error -> _uiState.value = WeatherUiState.Error(result.message)
-                is ApiResult.Loading -> { /* no-op */ }
+            _weatherState.value = ApiResult.Loading
+            val result = repository.fetchByCity(city.trim(), "metric")
+            if (result is ApiResult.Success) {
+                cachedResponse = result.data
+                _weatherState.value = ApiResult.Success(applyUnit(result.data))
+            } else {
+                _weatherState.value = result
             }
         }
     }
 
-    fun fetchByLocation(lat: Double, lon: Double) {
-        lastLat = lat
-        lastLon = lon
-        lastCity = null
+    fun fetchByCoords(lat: Double, lon: Double) {
         viewModelScope.launch {
-            _uiState.value = WeatherUiState.Loading
-            when (val result = repository.getWeatherByCoords(lat, lon, currentUnit)) {
-                is ApiResult.Success -> _uiState.value = WeatherUiState.Success(result.data, currentUnit)
-                is ApiResult.Error -> _uiState.value = WeatherUiState.Error(result.message)
-                is ApiResult.Loading -> { /* no-op */ }
+            _weatherState.value = ApiResult.Loading
+            val result = repository.fetchByCoords(lat, lon, "metric")
+            if (result is ApiResult.Success) {
+                cachedResponse = result.data
+                _weatherState.value = ApiResult.Success(applyUnit(result.data))
+            } else {
+                _weatherState.value = result
             }
         }
     }
 
     fun toggleUnit() {
-        currentUnit = if (currentUnit == "metric") "imperial" else "metric"
-        // Refresh with current unit
-        lastCity?.let { fetchByCity(it) }
-            ?: run {
-                val lat = lastLat
-                val lon = lastLon
-                if (lat != null && lon != null) fetchByLocation(lat, lon)
-            }
+        _isCelsius.value = !_isCelsius.value
+        cachedResponse?.let {
+            _weatherState.value = ApiResult.Success(applyUnit(it))
+        }
     }
 
-    fun getCurrentUnit(): String = currentUnit
+    private fun applyUnit(data: WeatherResponse): WeatherResponse {
+        return if (_isCelsius.value) {
+            data
+        } else {
+            // Convert °C → °F
+            data.copy(
+                main = data.main.copy(
+                    temp = cToF(data.main.temp),
+                    feelsLike = cToF(data.main.feelsLike),
+                    tempMin = cToF(data.main.tempMin),
+                    tempMax = cToF(data.main.tempMax)
+                )
+            )
+        }
+    }
+
+    private fun cToF(c: Double): Double = (c * 9.0 / 5.0) + 32.0
+
+    fun formatTemp(temp: Double): String {
+        val unit = if (_isCelsius.value) "°C" else "°F"
+        return "${temp.roundToInt()}$unit"
+    }
 }

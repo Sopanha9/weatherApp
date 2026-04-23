@@ -16,11 +16,11 @@ import com.bumptech.glide.Glide
 import com.google.android.gms.location.FusedLocationProviderClient
 import com.google.android.gms.location.LocationServices
 import com.sopanha.weatherapp.R
+import com.sopanha.weatherapp.data.model.WeatherResponse
 import com.sopanha.weatherapp.databinding.ActivityMainBinding
-import com.sopanha.weatherapp.viewmodel.WeatherUiState
+import com.sopanha.weatherapp.utils.ApiResult
 import com.sopanha.weatherapp.viewmodel.WeatherViewModel
 import kotlinx.coroutines.launch
-import kotlin.math.roundToInt
 
 class MainActivity : AppCompatActivity() {
 
@@ -28,13 +28,13 @@ class MainActivity : AppCompatActivity() {
     private val viewModel: WeatherViewModel by viewModels()
     private lateinit var fusedLocationClient: FusedLocationProviderClient
 
-    private val locationPermissionRequest = registerForActivityResult(
+    private val locationPermissionLauncher = registerForActivityResult(
         ActivityResultContracts.RequestMultiplePermissions()
     ) { permissions ->
         val granted = permissions[Manifest.permission.ACCESS_FINE_LOCATION] == true ||
                 permissions[Manifest.permission.ACCESS_COARSE_LOCATION] == true
         if (granted) fetchCurrentLocation()
-        else Toast.makeText(this, getString(R.string.location_permission_denied), Toast.LENGTH_SHORT).show()
+        else Toast.makeText(this, "Location permission denied", Toast.LENGTH_SHORT).show()
     }
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -44,125 +44,48 @@ class MainActivity : AppCompatActivity() {
 
         fusedLocationClient = LocationServices.getFusedLocationProviderClient(this)
 
-        setupUI()
+        setupListeners()
         observeViewModel()
+
+        // Load default city on start
+        viewModel.fetchByCity("London")
     }
 
-    private fun setupUI() {
-        // Search button click
-        binding.btnSearch.setOnClickListener {
-            val city = binding.etCity.text.toString().trim()
-            if (city.isNotEmpty()) {
-                hideKeyboard()
-                viewModel.fetchByCity(city)
-            } else {
-                binding.etCity.error = getString(R.string.error_empty_city)
-            }
-        }
+    private fun setupListeners() {
+        binding.btnSearch.setOnClickListener { triggerSearch() }
 
-        // IME search action
         binding.etCity.setOnEditorActionListener { _, actionId, _ ->
             if (actionId == EditorInfo.IME_ACTION_SEARCH) {
-                binding.btnSearch.performClick()
-                true
+                triggerSearch(); true
             } else false
         }
 
-        // GPS button click
-        binding.btnLocation.setOnClickListener {
-            requestLocationPermission()
+        binding.btnLocation.setOnClickListener { requestLocation() }
+
+        binding.btnToggleUnit.setOnClickListener { viewModel.toggleUnit() }
+    }
+
+    private fun triggerSearch() {
+        val city = binding.etCity.text.toString()
+        if (city.isBlank()) {
+            binding.etCity.error = "Enter a city name"
+            return
         }
-
-        // Unit toggle
-        binding.tvUnitToggle.setOnClickListener {
-            viewModel.toggleUnit()
-        }
+        viewModel.fetchByCity(city)
     }
 
-    private fun observeViewModel() {
-        lifecycleScope.launch {
-            viewModel.uiState.collect { state ->
-                when (state) {
-                    is WeatherUiState.Idle -> showIdle()
-                    is WeatherUiState.Loading -> showLoading()
-                    is WeatherUiState.Success -> showWeather(state)
-                    is WeatherUiState.Error -> showError(state.message)
-                }
-            }
-        }
-    }
+    private fun requestLocation() {
+        val fineGranted = ContextCompat.checkSelfPermission(
+            this, Manifest.permission.ACCESS_FINE_LOCATION
+        ) == PackageManager.PERMISSION_GRANTED
+        val coarseGranted = ContextCompat.checkSelfPermission(
+            this, Manifest.permission.ACCESS_COARSE_LOCATION
+        ) == PackageManager.PERMISSION_GRANTED
 
-    private fun showIdle() {
-        binding.progressBar.visibility = View.GONE
-        binding.cardWeather.visibility = View.GONE
-        binding.tvError.visibility = View.GONE
-    }
-
-    private fun showLoading() {
-        binding.progressBar.visibility = View.VISIBLE
-        binding.cardWeather.visibility = View.GONE
-        binding.tvError.visibility = View.GONE
-    }
-
-    private fun showWeather(state: WeatherUiState.Success) {
-        binding.progressBar.visibility = View.GONE
-        binding.tvError.visibility = View.GONE
-        binding.cardWeather.visibility = View.VISIBLE
-
-        val data = state.data
-        val unitSymbol = if (state.unit == "metric") "°C" else "°F"
-        val windUnit = if (state.unit == "metric") "m/s" else "mph"
-
-        // City & country
-        binding.tvCityName.text = "${data.name}, ${data.sys.country}"
-
-        // Temperature
-        val temp = data.main.temp.roundToInt()
-        binding.tvTemperature.text = "$temp$unitSymbol"
-
-        // Weather icon
-        val iconCode = data.weather.firstOrNull()?.icon ?: "01d"
-        Glide.with(this)
-            .load("https://openweathermap.org/img/wn/${iconCode}@2x.png")
-            .into(binding.ivWeatherIcon)
-
-        // Description
-        binding.tvDescription.text = data.weather.firstOrNull()?.description?.replaceFirstChar { it.uppercase() } ?: ""
-
-        // Feels like
-        val feelsLike = data.main.feelsLike.roundToInt()
-        binding.tvFeelsLike.text = getString(R.string.feels_like, "$feelsLike$unitSymbol")
-
-        // Min / Max
-        val tempMin = data.main.tempMin.roundToInt()
-        val tempMax = data.main.tempMax.roundToInt()
-        binding.tvMinMax.text = getString(R.string.min_max, "$tempMin$unitSymbol", "$tempMax$unitSymbol")
-
-        // Humidity
-        binding.tvHumidity.text = getString(R.string.humidity_value, data.main.humidity)
-
-        // Wind
-        binding.tvWind.text = getString(R.string.wind_value, data.wind.speed, windUnit)
-
-        // Pressure
-        binding.tvPressure.text = getString(R.string.pressure_value, data.main.pressure)
-
-        // Unit toggle label
-        binding.tvUnitToggle.text = if (state.unit == "metric") "Switch to °F" else "Switch to °C"
-    }
-
-    private fun showError(message: String) {
-        binding.progressBar.visibility = View.GONE
-        binding.cardWeather.visibility = View.GONE
-        binding.tvError.visibility = View.VISIBLE
-        binding.tvError.text = message
-    }
-
-    private fun requestLocationPermission() {
-        when {
-            ContextCompat.checkSelfPermission(this, Manifest.permission.ACCESS_FINE_LOCATION)
-                    == PackageManager.PERMISSION_GRANTED -> fetchCurrentLocation()
-            else -> locationPermissionRequest.launch(
+        if (fineGranted || coarseGranted) {
+            fetchCurrentLocation()
+        } else {
+            locationPermissionLauncher.launch(
                 arrayOf(
                     Manifest.permission.ACCESS_FINE_LOCATION,
                     Manifest.permission.ACCESS_COARSE_LOCATION
@@ -175,17 +98,69 @@ class MainActivity : AppCompatActivity() {
     private fun fetchCurrentLocation() {
         fusedLocationClient.lastLocation.addOnSuccessListener { location ->
             if (location != null) {
-                viewModel.fetchByLocation(location.latitude, location.longitude)
+                viewModel.fetchByCoords(location.latitude, location.longitude)
             } else {
-                Toast.makeText(this, getString(R.string.location_unavailable), Toast.LENGTH_SHORT).show()
+                Toast.makeText(this, "Unable to get location. Try again.", Toast.LENGTH_SHORT).show()
             }
-        }.addOnFailureListener {
-            Toast.makeText(this, getString(R.string.location_error), Toast.LENGTH_SHORT).show()
         }
     }
 
-    private fun hideKeyboard() {
-        val imm = getSystemService(android.view.inputmethod.InputMethodManager::class.java)
-        imm.hideSoftInputFromWindow(binding.root.windowToken, 0)
+    private fun observeViewModel() {
+        lifecycleScope.launch {
+            viewModel.weatherState.collect { state ->
+                when (state) {
+                    is ApiResult.Loading -> showLoading(true)
+                    is ApiResult.Success -> {
+                        showLoading(false)
+                        updateUI(state.data)
+                    }
+                    is ApiResult.Error -> {
+                        showLoading(false)
+                        showError(state.message)
+                    }
+                    null -> { /* initial state */ }
+                }
+            }
+        }
+
+        lifecycleScope.launch {
+            viewModel.isCelsius.collect { isCelsius ->
+                binding.btnToggleUnit.text = if (isCelsius) "°C / °F" else "°F / °C"
+            }
+        }
+    }
+
+    private fun updateUI(data: WeatherResponse) {
+        binding.weatherCard.visibility = View.VISIBLE
+        binding.tvError.visibility = View.GONE
+
+        binding.tvCityName.text = "${data.cityName}, ${data.sys.country}"
+        binding.tvTemperature.text = viewModel.formatTemp(data.main.temp)
+        binding.tvDescription.text = data.weather.firstOrNull()?.description?.replaceFirstChar { it.uppercase() } ?: ""
+        binding.tvFeelsLike.text = "Feels like ${viewModel.formatTemp(data.main.feelsLike)}"
+        binding.tvMinMax.text = "↓ ${viewModel.formatTemp(data.main.tempMin)}  ↑ ${viewModel.formatTemp(data.main.tempMax)}"
+        binding.tvHumidity.text = "${data.main.humidity}%"
+        binding.tvWind.text = "${data.wind.speed} m/s"
+        binding.tvPressure.text = "${data.main.pressure} hPa"
+
+        val iconUrl = "https://openweathermap.org/img/wn/${data.weather.firstOrNull()?.icon}@2x.png"
+        Glide.with(this)
+            .load(iconUrl)
+            .placeholder(R.drawable.ic_placeholder)
+            .into(binding.ivWeatherIcon)
+    }
+
+    private fun showLoading(loading: Boolean) {
+        binding.progressBar.visibility = if (loading) View.VISIBLE else View.GONE
+        if (loading) {
+            binding.weatherCard.visibility = View.GONE
+            binding.tvError.visibility = View.GONE
+        }
+    }
+
+    private fun showError(message: String) {
+        binding.tvError.visibility = View.VISIBLE
+        binding.tvError.text = "Error: $message"
+        binding.weatherCard.visibility = View.GONE
     }
 }
